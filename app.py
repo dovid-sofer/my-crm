@@ -4,14 +4,12 @@ import plotly.express as px
 
 st.set_page_config(page_title="CRM תורמים", layout="wide")
 
-# פונקציה לניקוי סכומים - מותאם בדיוק לנתונים שלך
+# פונקציה לניקוי סכומים
 def clean_currency(value):
     if pd.isna(value) or value == "" or value == " ": return 0
     if isinstance(value, str):
-        # מנקה סימני שקל, דולר, פסיקים ומילים כמו "לחודש"
-        value = value.replace('₪', '').replace('$', '').replace(',', '').replace('₪', '').strip()
+        value = value.replace('₪', '').replace('$', '').replace(',', '').strip()
         try:
-            # לוקח רק את המספר הראשון (למקרה שיש הערות ליד)
             return float(value.split()[0])
         except:
             return 0
@@ -19,24 +17,24 @@ def clean_currency(value):
 
 @st.cache_data
 def load_data():
-    # קריאה עם קידוד שמתאים לעברית (utf-8-sig)
     try:
         df = pd.read_csv('donors.csv', encoding='utf-8-sig')
     except:
-        df = pd.read_csv('donors.csv', encoding='cp1255') # ניסיון נוסף לקידוד עברי ישן
+        df = pd.read_csv('donors.csv', encoding='cp1255')
+    
+    # --- השורה החשובה: מנקה רווחים מיותרים משמות העמודות ---
+    df.columns = [c.strip() for c in df.columns]
     return df
 
 st.title("🎯 מערכת CRM לניהול תורמים")
 
-# סיסמה (תשנה כאן למה שאתה רוצה)
 password = st.sidebar.text_input("הכנס סיסמה", type="password")
-if password == "dudi330582008": # הסיסמה שרצית
+if password == "dudi330582008":
     
     df = load_data()
     
-    # עמודות אישיות
+    # רשימת עמודות אישיות (אחרי הניקוי)
     personal_cols = ['משפחה', 'פרטי', 'רחוב', 'טלפון', 'טלפון נוסף', 'קהילה']
-    # כל שאר העמודות הן קמפיינים
     campaign_cols = [c for c in df.columns if c not in personal_cols and "Full_Name" not in c]
 
     menu = st.sidebar.selectbox("תפריט", ["סטטיסטיקה", "כרטיס תורם"])
@@ -60,17 +58,20 @@ if password == "dudi330582008": # הסיסמה שרצית
 
     elif menu == "כרטיס תורם":
         st.header("👤 חיפוש וכרטיס תורם")
+        # יצירת שם מלא לחיפוש נוח
         df['Full_Name'] = df['משפחה'].fillna('') + " " + df['פרטי'].fillna('')
         donor_name = st.selectbox("חפש תורם", df['Full_Name'].unique())
         
         donor_info = df[df['Full_Name'] == donor_name].iloc[0]
         
+        # תצוגת פרטים אישיים עם הגנה אם עמודה חסרה
         c1, c2, c3 = st.columns(3)
-        c1.metric("משפחה", donor_info['משפחה'])
-        c2.metric("טלפון", donor_info['טלפון'])
-        c3.metric("קהילה", donor_info['קהילה'])
+        c1.metric("משפחה", donor_info.get('משפחה', '---'))
+        c2.metric("טלפון", donor_info.get('טלפון', '---'))
+        c3.metric("קהילה", donor_info.get('קהילה', '---'))
         
-        st.write(f"🏠 **כתובת:** {donor_info['רחוב']}")
+        st.write(f"🏠 **כתובת:** {donor_info.get('רחוב', '---')}")
+        st.write(f"📞 **טלפון נוסף:** {donor_info.get('טלפון נוסף', '---')}")
         
         st.divider()
         st.subheader("היסטוריית תרומות")
@@ -80,7 +81,7 @@ if password == "dudi330582008": # הסיסמה שרצית
         history = []
         for col in campaign_cols:
             val = donor_info[col]
-            if pd.notna(val) and val != "" and val != " ":
+            if pd.notna(val) and str(val).strip() != "":
                 if filter_h == "הכל" or filter_h in col:
                     history.append({"קמפיין": col, "סכום": val})
         
