@@ -4,29 +4,36 @@ import plotly.express as px
 import os
 
 # 1. הגדרות דף
-st.set_page_config(page_title="יד תומך - CRM", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="יד תומך - ניהול תורמים", layout="wide", initial_sidebar_state="collapsed")
 
-# --- CSS עיצוב נדרים פלוס משופר ---
+# --- הזרקת העיצוב המדויק של נדרים פלוס (Tailwind + Custom CSS) ---
 st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Assistant:wght@400;700&display=swap');
-    html, body, [class*="css"] { font-family: 'Assistant', sans-serif; direction: RTL; text-align: right; }
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Assistant:wght@200;400;700&display=swap');
+    html, body, [class*="css"] { font-family: 'Assistant', sans-serif; direction: rtl; text-align: right; }
+    .stApp { background-color: #f7fafc; }
     
-    .top-nav { background-color: #3b566e; color: white; padding: 10px 25px; display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid #00b5ad; }
-    .icon-bar { background-color: #5591ab; padding: 15px; display: flex; justify-content: center; gap: 20px; margin-bottom: 20px; border-radius: 0 0 20px 20px; }
-    
-    .nedarim-header { background-color: #00b5ad; color: white; padding: 12px; font-weight: bold; display: flex; border-radius: 8px 8px 0 0; }
-    .donor-card { background-color: white; border-radius: 15px; padding: 30px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); border-right: 12px solid #00b5ad; }
-    
-    /* עיצוב כפתורי הניווט העליונים */
-    .stButton>button { border: none; background: transparent; color: white; padding: 0; }
-    .nav-btn { text-align: center; color: white; cursor: pointer; }
-    .nav-icon { background: white; color: #5591ab; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 5px; font-size: 20px; }
-    .active .nav-icon { background: #00b5ad; color: white; }
-    </style>
+    /* Header & Nav */
+    .nedarim-header { background-color: #3b566e; color: white; padding: 15px 25px; display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid #00b5ad; }
+    .icon-bar { background-color: #5591ab; padding: 10px; display: flex; justify-content: center; gap: 30px; border-radius: 0 0 20px 20px; margin-bottom: 25px; }
+    .nav-icon-circle { background: white; color: #5591ab; width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 5px; }
+    .active .nav-icon-circle { background: #00b5ad; color: white; }
+
+    /* Table */
+    .nedarim-table-head { background-color: #00b5ad; color: white; font-weight: bold; padding: 12px; border-radius: 8px 8px 0 0; }
+    .table-row { background: white; border-bottom: 1px solid #edf2f7; transition: 0.2s; }
+    .table-row:hover { background-color: #f1fafa; }
+
+    /* Donor Card Modal */
+    .donor-modal { background: white; border-radius: 20px; padding: 30px; box-shadow: 0 20px 50px rgba(0,0,0,0.15); border-right: 12px solid #00b5ad; }
+    .michlol-box { background: rgba(0, 181, 173, 0.1); border: 1px solid rgba(0, 181, 173, 0.2); border-radius: 15px; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
+    .input-label { font-size: 13px; color: #718096; font-weight: 600; margin-bottom: 4px; }
+    .input-field { background: #edf2f7; border: none; padding: 10px; border-radius: 8px; width: 100%; margin-bottom: 15px; }
+</style>
 """, unsafe_allow_html=True)
 
-# 2. לוגיקת נתונים
+# 2. פונקציות לוגיקה
 def clean_money(val):
     if pd.isna(val) or str(val).strip() in ["", "nan", "0"]: return 0.0
     try:
@@ -35,7 +42,7 @@ def clean_money(val):
     except: return 0.0
 
 @st.cache_data
-def load_initial_data():
+def load_data():
     try:
         df = pd.read_csv('donors.csv', encoding='utf-8-sig')
     except:
@@ -43,133 +50,160 @@ def load_initial_data():
     df.columns = [c.strip() for c in df.columns]
     return df
 
-# ניהול State (כדי שהשינויים יישמרו במהלך הגלישה)
-if 'df' not in st.session_state:
-    st.session_state.df = load_initial_data()
-if 'page' not in st.session_state:
-    st.session_state.page = 'management' # דף ברירת מחדל
-if 'selected_idx' not in st.session_state:
-    st.session_state.selected_idx = None
+# ניהול מצבי דפים
+if 'df' not in st.session_state: st.session_state.df = load_data()
+if 'page' not in st.session_state: st.session_state.page = 'management'
+if 'selected_donor' not in st.session_state: st.session_state.selected_donor = None
 
 df = st.session_state.df
-
-# חישוב מכלול מחדש
 personal_cols = ['משפחה', 'פרטי', 'רחוב', 'טלפון', 'טלפון נוסף', 'קהילה', 'אשראי']
-campaign_cols = [c for c in df.columns if c not in personal_cols and c != 'מכלול']
+campaign_cols = [c for c in df.columns if c not in personal_cols]
+
+# חישוב מכלול
 df['מכלול'] = df[campaign_cols].apply(lambda col: col.map(clean_money)).sum(axis=1)
 
-# --- סרגל עליון ---
-col_logo_1, col_logo_2 = st.columns([1, 8])
-with col_logo_1:
-    if os.path.exists("logo.png"): st.image("logo.png", width=70)
-with col_logo_2:
-    st.markdown('<div class="top-nav"><div style="font-size:22px; font-weight:bold;">יד תומך</div><div style="font-size:14px;">שלום, שלמה סופר</div></div>', unsafe_allow_html=True)
+# --- הצגת Header ---
+st.markdown(f"""
+<div class="nedarim-header">
+    <div style="display:flex; align-items:center; gap:15px;">
+        <span style="font-size:24px; font-weight:800;">יד תומך</span>
+    </div>
+    <div style="font-size:14px; opacity:0.8;">שלום, מנהל המערכת | יציאה</div>
+</div>
+""", unsafe_allow_html=True)
 
-# --- סרגל אייקונים פונקציונלי ---
-icon_cols = st.columns(5)
-with icon_cols[0]:
-    if st.button("🏠\nדף הבית"): st.session_state.page = 'home'
-with icon_cols[1]:
-    if st.button("📊\nדוחות"): st.session_state.page = 'reports'
-with icon_cols[2]:
-    if st.button("👥\nניהול תורמים"): st.session_state.page = 'management'
-with icon_cols[3]:
-    if st.button("💳\nסליקה"): st.session_state.page = 'billing'
-with icon_cols[4]:
-    if st.button("⚙️\nהגדרות"): st.session_state.page = 'settings'
+# --- סרגל אייקונים (ניווט) ---
+nav_col1, nav_col2, nav_col3, nav_col4, nav_col5 = st.columns([1,1,1,1,1])
+with nav_col1: 
+    if st.button("🏠\\nדף הבית"): st.session_state.page = 'dashboard'
+with nav_col2: 
+    if st.button("📊\\nדוחות"): st.session_state.page = 'reports'
+with nav_col3: 
+    if st.button("👥\\nניהול תורמים"): st.session_state.page = 'management'
+with nav_col4: 
+    if st.button("💳\\nסליקה"): st.session_state.page = 'billing'
+with nav_col5: 
+    if st.button("⚙️\\nהגדרות"): st.session_state.page = 'settings'
 
-# --- אבטחה ---
-password = st.sidebar.text_input("סיסמת מערכת", type="password")
+# --- אבטחת כניסה ---
+password = st.sidebar.text_input("סיסמת יד תומך", type="password")
 if password == "dudi330582008":
 
-    # --- דף הבית (סיכום) ---
-    if st.session_state.page == 'home':
-        st.title("ברוך הבא למערכת יד תומך")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("סה''כ תורמים", len(df))
-        c2.metric("סה''כ גיוס כללי", f"₪{df['מכלול'].sum():,.0f}")
-        c3.metric("קמפיין אחרון", campaign_cols[-1])
-
-    # --- דף דוחות (סטטיסטיקה) ---
-    elif st.session_state.page == 'reports':
-        st.header("📊 סטטיסטיקות גיוס")
-        holiday = st.selectbox("בחר חג לניתוח:", ["פסח", "פורים", "ר''ה", "חנוכה"])
-        stats = []
-        for col in campaign_cols:
-            if holiday in col:
-                stats.append({"קמפיין": col, "סכום": df[col].map(clean_money).sum()})
-        if stats:
-            fig = px.bar(pd.DataFrame(stats), x="קמפיין", y="סכום", color_discrete_sequence=['#00b5ad'])
-            st.plotly_chart(fig, use_container_width=True)
+    # --- דף דאשבורד ---
+    if st.session_state.page == 'dashboard':
+        st.markdown("<h2 class='text-2xl font-bold text-[#3b566e] mb-6'>לוח בקרה כללי</h2>", unsafe_allow_html=True)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("סה''כ גיוס", f"₪{df['מכלול'].sum():,.0f}")
+        c2.metric("תורמים רשומים", len(df))
+        c3.metric("ממוצע תרומה", f"₪{df['מכלול'].mean():,.0f}")
+        c4.metric("קמפיין נוכחי", campaign_cols[-1])
+        
+        # גרף תרומות לפי חגים
+        totals = df[campaign_cols].apply(lambda col: col.map(clean_money)).sum()
+        fig = px.bar(x=totals.index, y=totals.values, title="הכנסות לפי קמפיינים", color_discrete_sequence=['#00b5ad'])
+        st.plotly_chart(fig, use_container_width=True)
 
     # --- דף ניהול תורמים (הטבלה) ---
-    elif st.session_state.page == 'management':
-        if st.session_state.selected_idx is None:
-            st.subheader("🔍 חיפוש וניהול תורמים")
-            search = st.text_input("", placeholder="חפש שם, טלפון או כתובת...")
-            
-            st.markdown('<div class="nedarim-header"><div style="flex:1.5">מכלול</div><div style="flex:3">שם התורם</div><div style="flex:3">כתובת</div><div style="flex:2">טלפון</div><div style="flex:1">פעולה</div></div>', unsafe_allow_html=True)
-            
-            view_df = df
-            if search: view_df = df[df.apply(lambda r: search in str(r.values), axis=1)]
-            
-            for i, row in view_df.iterrows():
-                cols = st.columns([1.5, 3, 3, 2, 1])
-                cols[0].write(f"**₪{row['מכלול']:,.0f}**")
-                cols[1].write(f"{row['משפחה']} {row['פרטי']}")
-                cols[2].write(row['רחוב'] if pd.notna(row['רחוב']) else "---")
-                cols[3].write(row['טלפון'] if pd.notna(row['טלפון']) else "---")
-                if cols[4].button("ערוך ✏️", key=f"edit_{i}"):
-                    st.session_state.selected_idx = i
-                    st.rerun()
+    elif st.session_state.page == 'management' and st.session_state.selected_donor is None:
+        st.markdown("<h2 class='text-2xl font-bold text-[#3b566e] mb-4'>ניהול אנשי קשר</h2>", unsafe_allow_html=True)
+        search = st.text_input("", placeholder="חפש תורם לפי שם, כתובת או טלפון...")
         
-        # --- כרטיס תורם (עריכה וחיוב) ---
-        else:
-            idx = st.session_state.selected_idx
-            donor = df.loc[idx]
-            
-            if st.button("⬅️ חזרה לרשימה"):
-                st.session_state.selected_idx = None
+        # בניית הטבלה הטורקיזית
+        st.markdown('<div class="nedarim-table-head"><div class="flex justify-between"> <span style="flex:1">מכלול</span> <span style="flex:3">שם התורם</span> <span style="flex:3">כתובת</span> <span style="flex:2">טלפון</span> <span style="flex:1">ערוך</span> </div></div>', unsafe_allow_html=True)
+        
+        view_df = df
+        if search:
+            view_df = df[df.apply(lambda r: search in str(r.values), axis=1)]
+
+        for i, row in view_df.iterrows():
+            r_col = st.columns([1, 3, 3, 2, 1])
+            r_col[0].write(f"**₪{row['מכלול']:,.0f}**")
+            r_col[1].write(f"{row['משפחה']} {row['פרטי']}")
+            r_col[2].write(row['רחוב'] if pd.notna(row['רחוב']) else "---")
+            r_col[3].write(row['טלפון'])
+            if r_col[4].button("✏️", key=f"edit_{i}"):
+                st.session_state.selected_donor = i
                 st.rerun()
 
-            st.markdown('<div class="donor-card">', unsafe_allow_html=True)
-            st.header(f"✏️ עריכת תורם: {donor['משפחה']} {donor['פרטי']}")
-            
-            with st.form("edit_form"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    new_ln = st.text_input("שם משפחה", value=donor['משפחה'])
-                    new_fn = st.text_input("שם פרטי", value=donor['פרטי'])
-                    new_addr = st.text_input("כתובת", value=donor['רחוב'])
-                with col2:
-                    new_p1 = st.text_input("טלפון", value=donor['טלפון'])
-                    new_p2 = st.text_input("טלפון נוסף", value=donor['טלפון נוסף'])
-                    new_comm = st.text_input("קהילה", value=donor['קהילה'])
-                
-                if st.form_submit_button("💾 שמור שינויים בפרטים"):
-                    st.session_state.df.at[idx, 'משפחה'] = new_ln
-                    st.session_state.df.at[idx, 'פרטי'] = new_fn
-                    st.session_state.df.at[idx, 'רחוב'] = new_addr
-                    st.session_state.df.at[idx, 'טלפון'] = new_p1
-                    st.session_state.df.at[idx, 'טלפון נוסף'] = new_p2
-                    st.session_state.df.at[idx, 'קהילה'] = new_comm
-                    st.success("הפרטים עודכנו!")
+    # --- כרטיס תורם (ה-Popup המעוצב) ---
+    elif st.session_state.selected_donor is not None:
+        idx = st.session_state.selected_donor
+        donor = df.loc[idx]
+        
+        if st.button("⬅️ חזרה לרשימת תורמים"):
+            st.session_state.selected_donor = None
+            st.rerun()
 
+        st.markdown('<div class="donor-modal">', unsafe_allow_html=True)
+        st.markdown(f"<h2 class='text-2xl font-bold text-[#3b566e] mb-6'>👤 כרטיס תורם: {donor['משפחה']} {donor['פרטי']}</h2>", unsafe_allow_html=True)
+        
+        # חלוקה ל-2 טורים בדיוק כמו בעיצוב של גוגל
+        card_c1, card_c2 = st.columns(2)
+        
+        with card_c1: # צד ימין - זהות
+            st.markdown('<p class="input-label">שם משפחה</p>', unsafe_allow_html=True)
+            new_ln = st.text_input("", value=donor['משפחה'], key="eln", label_visibility="collapsed")
+            st.markdown('<p class="input-label">שם פרטי</p>', unsafe_allow_html=True)
+            new_fn = st.text_input("", value=donor['פרטי'], key="efn", label_visibility="collapsed")
+            st.markdown('<p class="input-label">כתובת מגורים</p>', unsafe_allow_html=True)
+            new_addr = st.text_input("", value=donor['רחוב'], key="eadr", label_visibility="collapsed")
+            
+            # קופסת מכלול בולטת
+            st.markdown(f"""
+            <div class="michlol-box">
+                <div><h4 style="color:#00b5ad; font-weight:bold; margin:0;">סה"כ מכלול</h4><p style="font-size:12px; margin:0;">יתרת תרומות מצטברת</p></div>
+                <div style="font-size:32px; font-weight:900; color:#00b5ad;">₪{donor['מכלול']:,.0f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with card_c2: # צד שמאל - קשר ואשראי
+            st.markdown('<p class="input-label">טלפון נייד</p>', unsafe_allow_html=True)
+            new_p1 = st.text_input("", value=donor['טלפון'], key="ep1", label_visibility="collapsed")
+            st.markdown('<p class="input-label">קהילה</p>', unsafe_allow_html=True)
+            new_comm = st.text_input("", value=donor['קהילה'], key="ecomm", label_visibility="collapsed")
+            
             st.divider()
-            st.subheader("➕ הוספת חיוב/תרומה חדשה")
-            with st.form("add_donation"):
-                camp = st.selectbox("בחר קמפיין:", campaign_cols)
-                amount = st.text_input("סכום לחיוב (למשל: 150 ₪):")
-                if st.form_submit_button("➕ הוסף חיוב"):
-                    st.session_state.df.at[idx, camp] = amount
-                    st.success(f"חיוב על סך {amount} נוסף לקמפיין {camp}!")
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            # כפתור הורדת הגיבוי (כי אנחנו ב-CSV)
-            st.write("")
-            csv = st.session_state.df.to_csv(index=False, encoding='utf-8-sig')
-            st.download_button("📥 הורד קובץ מעודכן (לשמירה קבועה)", csv, "donors_updated.csv", "text/csv")
+            # אבטחת אשראי
+            st.markdown('<p class="text-sm font-bold text-red-500 mb-2">🔒 אבטחת כרטיס אשראי</p>', unsafe_allow_html=True)
+            with st.popover("💳 הצג פרטי כרטיס אשראי"):
+                pin = st.text_input("הזן קוד PIN:", type="password")
+                if pin == "1234":
+                    st.success("גישה אושרה")
+                    st.code(donor.get('אשראי', 'לא הוזן כרטיס'), language="")
+                elif pin:
+                    st.error("קוד שגוי")
+        
+        # שמירה והוספת תרומה
+        st.write("")
+        if st.button("💾 שמור שינויים בפרטים", use_container_width=True):
+            st.session_state.df.at[idx, 'משפחה'] = new_ln
+            st.session_state.df.at[idx, 'פרטי'] = new_fn
+            st.session_state.df.at[idx, 'רחוב'] = new_addr
+            st.session_state.df.at[idx, 'טלפון'] = new_p1
+            st.session_state.df.at[idx, 'קהילה'] = new_comm
+            st.success("הנתונים עודכנו!")
+
+        st.markdown("---")
+        st.subheader("📋 היסטוריית תרומות וחיוב חדש")
+        
+        # הוספת תרומה חדשה
+        with st.expander("➕ הוספת תרומה חדשה לקמפיין"):
+            sel_camp = st.selectbox("בחר קמפיין:", campaign_cols)
+            new_amt = st.text_input("סכום (₪):")
+            if st.button("עדכן תרומה"):
+                st.session_state.df.at[idx, sel_camp] = new_amt
+                st.rerun()
+
+        # טבלת היסטוריה
+        hist_list = []
+        for c in campaign_cols:
+            val = donor[c]
+            if pd.notna(val) and str(val).strip() not in ["", "0", "nan"]:
+                hist_list.append({"קמפיין": c, "סכום": val})
+        if hist_list:
+            st.table(pd.DataFrame(hist_list))
+        
+        st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    st.info("אנא הכנס סיסמה.")
+    st.info("אנא הכנס סיסמת מערכת כדי להתחיל.")
